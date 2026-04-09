@@ -2,8 +2,9 @@
   "name": "Cascada SPA - Citas",
   "short_name": "Cascada",
   "description": "Sistema de gestión de citas",
-  "start_url": ".",
+  "start_url": "./index.html",
   "display": "standalone",
+  "display_override": ["fullscreen", "minimal-ui"],
   "background_color": "#ffffff",
   "theme_color": "#1B2945",
   "icons": [

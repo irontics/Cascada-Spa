@@ -391,6 +391,11 @@ window.accionEliminarEvaluacion = async function(id) {
 window.accionRegistrarEvaluacionACliente = async function(p) {
    
    console.log("🚀 INICIO REGISTRO EVALUACION", p);
+   if (!p.servicio_id) {
+    alert("❌ ERROR: Esta evaluación no tiene servicio_id.\n\nNo se puede continuar.");
+    console.error("EVALUACION SIN SERVICIO_ID:", p);
+    return;
+}
 
     if (!confirm(`¿DESEA REGISTRAR A ${p.nombre.toUpperCase()} EN EL SISTEMA?`)) return;
 
@@ -405,7 +410,7 @@ window.accionRegistrarEvaluacionACliente = async function(p) {
 
         // VALIDACIÓN CRÍTICA: Si no existe el servicio, detenemos para no guardar basura
         if (!servicio) {
-            alert(`❌ ERROR DE VINCULACIÓN: El servicio "${nombreBusqueda}" no existe en la tabla 'servicios'. \n\nVerifique que el nombre sea IDÉNTICO en ambas tablas para poder recuperar el ID.`);
+            alert(`❌ ERROR DE VINCULACIÓN: El servicio "${p.promo_titulo}" no existe en la tabla 'servicios'. \n\nVerifique que el nombre sea IDÉNTICO en ambas tablas para poder recuperar el ID.`);
             return; 
         }
 
@@ -573,6 +578,8 @@ window.renderizarFilasEvaluacion = function(lista) {
         const fechaObj = new Date(p.fecha_evaluacion + 'T00:00:00');
         const diaNombre = dias[fechaObj.getDay()];
 
+        console.log("EVALUACION RENDER:", p);
+
         // Proporción corregida: 1.2fr para gestión garantiza que los botones se vean completos
         htmlRows += `
         <div class="grid grid-cols-[1.2fr_1.8fr_1.5fr_1.2fr] gap-4 px-6 py-4 border-b border-slate-50 hover:bg-slate-50/50 transition-all items-center">
@@ -594,7 +601,7 @@ window.renderizarFilasEvaluacion = function(lista) {
              </div>
             
              <div class="flex justify-end gap-3 border-l border-slate-100 pl-1">
-              <button onclick="window.accionRegistrarEvaluacionACliente({id: '${p.id}', identificacion: '${p.identificacion}', nombre: '${p.nombre}', telefono: '${p.telefono}', sede_id: '${p.sede_id}', promo_titulo: '${p.promo_titulo}', fecha_evaluacion: '${p.fecha_evaluacion}', hora_evaluacion: '${p.hora_evaluacion}'})"
+              <button onclick="window.accionRegistrarEvaluacionACliente({id: '${p.id}', identificacion: '${p.identificacion}', nombre: '${p.nombre}', telefono: '${p.telefono}', sede_id: '${p.sede_id}', promo_titulo: '${p.promo_titulo}', fecha_evaluacion: '${p.fecha_evaluacion}', hora_evaluacion: '${p.hora_evaluacion}', servicio_id: '${p.servicio_id || ''}'})"
     class="w-5 h-5 flex items-center justify-center bg-green-500 text-white rounded-xl hover:bg-green-600 shadow-lg shadow-green-100 transition-all active:scale-50 flex-shrink-0">
     <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="4" d="M12 4v16m8-8H4" />
@@ -1891,11 +1898,13 @@ window.finalizarAgendamientoTotal = async function() {
         hora_evaluacion: window.horaSeleccionada,
         sede_id: window.sedeSeleccionada, 
         promo_titulo: window.servicioSeleccionado,
+        servicio_id: window.servicioIdSeleccionado,
         estado: 'PENDIENTE'
     };
 
     b.innerText = "REGISTRANDO...";
     b.disabled = true;
+    console.log("SERVICIO_ID FINAL:", window.servicioIdSeleccionado);
 
     try {
         const { error } = await sb.from('evaluaciones').insert([datos]);
@@ -2963,7 +2972,7 @@ contenedor.innerHTML = '';
                 </div>
                 
                 <div class="flex gap-1.5">
-               <button onclick="window.prepararBusquedaEvaluacion('${srv.nombre}', '${sede}')"
+               <button onclick="window.prepararBusquedaEvaluacion('${srv.id}','${srv.nombre}', '${sede}')"
                     class="bg-white border border-emerald-500 text-emerald-600 font-black px-3 py-2 rounded-xl text-[9px] uppercase hover:bg-emerald-500 hover:text-white transition-all active:scale-90 italic shadow-sm">
                     EVAL
                 </button>
@@ -3210,13 +3219,14 @@ if (tratamientoExistente) {
 };
 
 
-window.prepararBusquedaEvaluacion = function(servicioNombre, sedeNombre) {
+window.prepararBusquedaEvaluacion = function(servicioId, servicioNombre, sedeNombre) {
     const contenedor = document.getElementById('lista-servicios-cliente');
     if (!contenedor) return;
 
     // Variables globales para que el sistema recuerde qué estamos agendando
     window.servicioSeleccionado = servicioNombre;
     window.sedeSeleccionada = sedeNombre;
+    window.servicioIdSeleccionado = servicioId;
 
     contenedor.innerHTML = `
         <div class="p-4 space-y-4 animate-in fade-in duration-300">
@@ -3943,6 +3953,19 @@ window.confirmarCitaConCupo = async function(fecha, hora) {
             return alert("❌ Cupo lleno."); 
         }
 
+        // 🔥 BUSCAR EL SERVICIO REAL
+const { data: servicio } = await sb
+    .from('servicios')
+    .select('id')
+    .ilike('nombre', `%${promoTitulo.trim()}%`)
+    .single();
+
+if (errorServicio || !servicio) {
+    alert('❌ No existe ese servicio en la tabla servicios');
+    console.error("ERROR BUSCANDO SERVICIO:", errorServicio);
+    return;
+}
+
         // 2. Registro en la tabla CORRECTA 'evaluaciones'
         const { error } = await sb.from('evaluaciones').insert([{ 
             nombre: nombre, 
@@ -3950,6 +3973,7 @@ window.confirmarCitaConCupo = async function(fecha, hora) {
             telefono: celular,      // Usamos telefono como en la tabla evaluaciones
             sede_id: sedeId,
             promo_titulo: promoTitulo,
+            servicio_id: servicio.id,
             fecha_evaluacion: fecha, // Nombre exacto confirmado por ti
             hora_evaluacion: `${hora}:00`, // Nombre exacto confirmado por ti
             estado: 'PENDIENTE' 

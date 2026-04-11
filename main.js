@@ -2184,7 +2184,7 @@ console.log('PROMO_ID:', c.promocion_id);
 
         <!-- ❌ CANCELAR -->
     <button 
-        onclick="window.cambiarEstadoCita('${c.id}', '${c.fecha_hora}')"
+        onclick="window.cancelarCitaAdmin('${c.id}')"
         title="Cancelar"
         class="w-6 h-6 flex items-center justify-center rounded-full bg-red-100 hover:bg-red-200 transition-all active:scale-90">
         
@@ -2271,11 +2271,222 @@ const saldoReal = mapaSaldos?.[keySaldo] ?? 0;
 };
 
 window.reagendarCitaAdmin = function(citaId, sedeId) {
-    const nuevaFecha = prompt("Ingrese nueva fecha y hora (YYYY-MM-DD HH:00)");
 
-    if (!nuevaFecha) return;
+    const modal = document.createElement('div');
+    modal.id = "modal-reagendar-admin";
+    modal.className = "fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]";
 
-    window.confirmarReagendamiento(citaId, nuevaFecha, sedeId);
+    const hoy = new Date().toISOString().split('T')[0];
+
+    modal.innerHTML = `
+        <div class="bg-white rounded-2xl p-5 w-[320px] shadow-xl relative">
+
+            <!-- ❌ CERRAR -->
+            <button onclick="document.getElementById('modal-reagendar-admin').remove()"
+                class="absolute top-2 right-2 text-slate-400 hover:text-red-500 text-[14px] font-black">
+                ✕
+            </button>
+
+            <h3 class="text-[12px] font-black text-slate-700 mb-3 text-center">
+                REAGENDAR CITA
+            </h3>
+
+            <input type="date" id="nueva-fecha-admin" min="${hoy}"
+                class="w-full border p-2 rounded-lg text-[11px] mb-3">
+
+            <div id="horas-admin" class="grid grid-cols-3 gap-2 mb-4"></div>
+
+            <button id="btn-confirmar-reagenda" disabled
+                class="w-full bg-blue-500 text-white py-2 rounded-lg text-[11px] font-bold opacity-50">
+                CONFIRMAR
+            </button>
+
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    let horaSeleccionada = null;
+
+    document.getElementById('nueva-fecha-admin').onchange = async function() {
+
+        const fecha = this.value;
+        const cont = document.getElementById('horas-admin');
+
+        if (!fecha) return;
+
+        const fechaObj = new Date(fecha + "T00:00:00");
+        const dia = fechaObj.getDay(); // 0 = domingo
+
+        // 🚫 BLOQUEAR DOMINGO
+        if (dia === 0) {
+            cont.innerHTML = `<p class="text-red-500 text-[10px] text-center font-bold">No hay atención los domingos</p>`;
+            return;
+        }
+
+        cont.innerHTML = "Cargando...";
+
+        // 🔥 TRAER CITAS DEL DÍA
+        const { data: citas } = await sb
+            .from('agendamientos')
+            .select('fecha_hora')
+            .eq('sede_id', sedeId)
+            .gte('fecha_hora', fecha + "T00:00:00")
+            .lte('fecha_hora', fecha + "T23:59:59");
+
+        // 🔥 CONTAR CITAS POR HORA (clave del sistema)
+const conteoHoras = {};
+
+citas.forEach(c => {
+   const hora = new Date(c.fecha_hora).getUTCHours();
+
+    if (!conteoHoras[hora]) {
+        conteoHoras[hora] = 0;
+    }
+
+    conteoHoras[hora]++;
+});
+
+        cont.innerHTML = '';
+
+        // ⏰ DEFINIR HORARIO
+       const ahora = new Date();
+const esHoy = fecha === ahora.toISOString().split('T')[0];
+
+const horaInicioBase = 8;
+const horaFin = (dia === 6) ? 16 : 18;
+
+// 🔥 SI ES HOY, AJUSTAR INICIO DINÁMICO
+let horaInicio = horaInicioBase;
+
+if (esHoy) {
+    const horaActual = ahora.getHours();
+
+    // siguiente hora disponible (ej: si son 15 → empieza en 16)
+    horaInicio = horaActual + 1;
+
+    // nunca menor al horario base
+    if (horaInicio < horaInicioBase) {
+        horaInicio = horaInicioBase;
+    }
+
+    // 🔴 SI YA NO HAY HORAS DISPONIBLES
+    if (horaInicio > horaFin) {
+        cont.innerHTML = `<p class="text-red-500 text-[10px] text-center font-bold">
+            No hay horarios disponibles para hoy
+        </p>`;
+        return;
+    }
+}
+
+        for (let h = horaInicio; h <= horaFin; h++) {
+
+const usadas = conteoHoras[h] || 0;
+const disponibles = 3 - usadas;
+
+const btn = document.createElement('button');
+
+let colorClase = '';
+let textoEstado = '';
+
+// 🎨 COLORES PRO SEGÚN DISPONIBILIDAD
+if (disponibles <= 0) {
+    colorClase = "bg-red-100 text-red-400 cursor-not-allowed";
+    textoEstado = '❌';
+    btn.disabled = true;
+} else if (disponibles === 1) {
+    colorClase = "bg-orange-100 text-orange-600";
+    textoEstado = '(1)';
+} else if (disponibles === 2) {
+    colorClase = "bg-yellow-100 text-yellow-700";
+    textoEstado = '(2)';
+} else {
+    colorClase = "bg-green-100 text-green-700";
+    textoEstado = '(3)';
+}
+
+// 🎯 ESTILO BASE
+btn.className = `${colorClase} text-[10px] p-2 rounded transition-all`;
+
+// TEXTO
+btn.innerText = `${h.toString().padStart(2, '0')}:00 ${textoEstado}`;
+
+// ✅ SOLO SI HAY CUPOS SE PUEDE SELECCIONAR
+if (disponibles > 0) {
+    btn.onclick = () => {
+
+        horaSeleccionada = h;
+
+        document.querySelectorAll('#horas-admin button')
+            .forEach(b => b.classList.remove('bg-blue-500', 'text-white'));
+
+        btn.classList.add('bg-blue-500', 'text-white');
+
+        const confirmar = document.getElementById('btn-confirmar-reagenda');
+        confirmar.disabled = false;
+        confirmar.classList.remove('opacity-50');
+    };
+}
+            cont.appendChild(btn);
+        }
+    };
+
+    document.getElementById('btn-confirmar-reagenda').onclick = async function() {
+
+        const fecha = document.getElementById('nueva-fecha-admin').value;
+
+        if (!fecha || horaSeleccionada === null) return;
+
+        const nuevaFechaHora = `${fecha}T${horaSeleccionada.toString().padStart(2, '0')}:00:00`;
+
+        try {
+
+            const { error } = await sb
+                .from('agendamientos')
+                .update({ fecha_hora: nuevaFechaHora })
+                .eq('id', citaId);
+
+            if (error) throw error;
+
+            alert("✅ Cita reagendada");
+
+            document.getElementById('modal-reagendar-admin').remove();
+
+            window.renderizarCitasAdmin();
+
+        } catch (err) {
+            console.error(err);
+            alert("❌ Error al reagendar");
+        }
+    };
+};
+
+// Cancelar cita desde administrador 
+
+window.cancelarCitaAdmin = async function(id) {
+
+    if (!confirm("¿Seguro que deseas cancelar esta cita?")) return;
+
+    try {
+
+        const { error } = await sb
+            .from('agendamientos')
+            .delete()
+            .eq('id', id);
+
+        if (error) throw error;
+
+        alert("✅ Cita cancelada correctamente");
+
+        // 🔄 REFRESCAR TABLA
+        if (typeof window.renderizarCitasAdmin === 'function') {
+            window.renderizarCitasAdmin();
+        }
+
+    } catch (err) {
+        console.error("Error cancelando:", err);
+        alert("❌ Error al cancelar: " + err.message);
+    }
 };
 
 window.confirmarReagendamiento = async function(citaId, nuevaFecha, sedeId) {
@@ -2493,12 +2704,8 @@ window.aplicarFiltroExcel = function() {
 
 
 
-// SOLUCIÓN PARA EL ADMINISTRADOR
-window.cambiarEstadoCita = async function(id, fechaHora) {
-    // Llamamos a la función maestra. 
-    // Pasamos null en clienteId y saldo porque el admin no los necesita para refrescar su tabla.
-    await window.cancelarCita(id, fechaHora, null, null);
-};
+
+
 
 // --- FUNCIÓN PARA QUE EL ADMIN CARGUE SESIONES DESPUÉS DE LA EVALUACIÓN ---
 window.cargarSesionesAdmin = function(clienteId, nombre) {
